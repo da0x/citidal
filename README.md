@@ -13,7 +13,7 @@ ahead of its own art, so taking the pack out puts everything back.
 |---|---|
 | Half-Life 2, Episode One, Episode Two | working |
 | Portal, Portal 2 | next, on the same engine code |
-| Quake III Arena | after those |
+| Quake III Arena | working |
 
 Each engine lives in its own folder under `source/engines/`, behind the interface in
 `source/engine/game.hpp`. An engine knows how its games store art, where they are
@@ -27,7 +27,7 @@ Linux now. Windows is next: the platform code is in `source/platform/linux/`, an
 
 ## Building
 
-Needs CMake 3.28 or later, a C++23 compiler, SDL3, OpenGL and nlohmann-json. Dear ImGui
+Needs CMake 3.28 or later, a C++23 compiler, SDL3, OpenGL, zlib and nlohmann-json. Dear ImGui
 and stb are fetched by CMake at pinned commits.
 
 ```bash
@@ -36,11 +36,12 @@ ninja -C build
 ./build/citadel
 ```
 
-On Arch: `pacman -S cmake ninja sdl3 nlohmann-json`.
+On Arch: `pacman -S cmake ninja sdl3 zlib nlohmann-json`.
 
 ## Using it
 
-citadel opens on the first game it finds in your Steam libraries.
+citadel finds every game it knows in your Steam libraries and opens the one you used last.
+The buttons beside its name switch between them. Each game has its own pack.
 
 - **Choose a surface** on the left. The shelves (Posters, Signs, Billboards, Screens,
   Paintings, Menu backgrounds) are found by words in the game's material names. **Yours**
@@ -65,7 +66,8 @@ Keys: Esc clears the search, then the selection. Q quits when you aren't typing.
   with a copy of every picture you used, named by its content, so the pack is complete on
   its own and can be moved to another machine.
 - Build files: `~/.cache/citadel/build/<game>/`. They can be deleted at any time.
-- The installed pack, for Half-Life 2: `<game>/hl2/custom/citadel.vpk`.
+- The installed pack: `<game>/hl2/custom/citadel.vpk` for Half-Life 2, and
+  `<game>/baseq3/zz-citadel.pk3` for Quake III Arena.
 
 ## How the Half-Life 2 pack works
 
@@ -85,6 +87,17 @@ and compares it with what it staged.
 
 "Where it appears" reads each map's texture table and the decals and overlays its entities
 place. Pictures painted onto models aren't found that way yet.
+
+## How the Quake III Arena pack works
+
+Quake III keeps its art as TGA and JPG files inside `pk3` files, which are zip files, in
+`baseq3/`. It loads the pk3s in order of their names, and when two hold the same path the
+later one wins. citadel's pack is named `zz-citadel.pk3` so that it sorts after `pak0` to
+`pak8`, and holds each new picture at the original's path, size and format.
+
+Shader scripts in `scripts/*.shader` say which images each surface draws. "Where it
+appears" reads them together with each map's shader list. The game is started through
+Steam, which runs the Windows release under Proton.
 
 ## Checking the core
 

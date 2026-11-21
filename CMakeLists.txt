@@ -28,6 +28,7 @@ FetchContent_MakeAvailable(imgui stb)
 find_package(SDL3 REQUIRED CONFIG)
 find_package(OpenGL REQUIRED)
 find_package(nlohmann_json 3 REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_library(stb STATIC source/image/stb.c)
 target_include_directories(stb SYSTEM PUBLIC ${stb_SOURCE_DIR})
@@ -42,9 +43,12 @@ add_library(citadel_core STATIC
     source/engines/source-engine/content.cpp
     source/engines/source-engine/material.cpp
     source/engines/source-engine/maps.cpp
-    source/engines/source-engine/half-life-2.cpp)
+    source/engines/source-engine/half-life-2.cpp
+    source/engines/id-tech-3/zip.cpp
+    source/engines/id-tech-3/content.cpp
+    source/engines/id-tech-3/quake-3-arena.cpp)
 target_include_directories(citadel_core PUBLIC source)
-target_link_libraries(citadel_core PUBLIC stb nlohmann_json::nlohmann_json)
+target_link_libraries(citadel_core PUBLIC stb nlohmann_json::nlohmann_json ZLIB::ZLIB)
 target_compile_options(citadel_core PRIVATE -Wall -Wextra)
 
 add_library(imgui STATIC

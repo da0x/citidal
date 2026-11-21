@@ -3,6 +3,7 @@
 // command line. It never touches the game's own folders.
 
 #include "engine/game.hpp"
+#include "engines/id-tech-3/zip.hpp"
 #include "engines/source-engine/vtf.hpp"
 #include "image/image.hpp"
 #include "pack/pack.hpp"
@@ -129,6 +130,55 @@ int main(int count, char** arguments) {
     for (const auto& level : levels) std::printf(" %s(%s)", level.name.c_str(), level.edition.c_str());
     std::printf("\n");
     expect(!levels.empty(), "found maps that use the poster");
+
+    for (auto& other : games) {
+        if (other->slug() != "quake-3-arena") continue;
+        auto& quake = *other;
+        std::printf("     %s at %s, %zu surfaces\n", quake.name().c_str(), quake.location().c_str(), quake.surfaces().size());
+        int readable = 0;
+        for (const auto& surface : quake.surfaces())
+            if (quake.original(surface.id, 64)) ++readable;
+        std::printf("     %d of %zu pictures citadel can read\n", readable, quake.surfaces().size());
+        expect(readable * 10 >= int(quake.surfaces().size()) * 9, "almost every Quake III picture reads");
+
+        std::string tga, jpg;
+        for (const auto& surface : quake.surfaces()) {
+            if (tga.empty() && surface.id.ends_with(".tga") && surface.name.find("logo") != std::string::npos) tga = surface.id;
+            if (jpg.empty() && surface.id.ends_with(".jpg") && surface.id.starts_with("textures/")) jpg = surface.id;
+        }
+        std::printf("     trying %s and %s\n", tga.c_str(), jpg.c_str());
+        auto quake_pack = pack::pack::open(scratch / "quake-pack");
+        auto adopted_again = quake_pack.adopt_picture(picture, error);
+        if (adopted_again) {
+            quake_pack.put(tga, *adopted_again);
+            quake_pack.put(jpg, *adopted_again);
+        }
+        auto quake_built = quake.build(quake_pack, scratch / "quake-staging");
+        std::printf("     %s\n", quake_built.message.c_str());
+        expect(quake_built.ok, "built a Quake III pack");
+
+        auto written = id_tech_3::zip::archive::open(scratch / "quake-staging/zz-citadel.pk3", error);
+        expect(written && written->entries().size() == 2, "the pk3 holds both pictures");
+        if (written) {
+            for (const auto& entry : written->entries()) {
+                auto bytes = written->read(entry);
+                auto back = bytes ? image::decode(*bytes, error) : std::nullopt;
+                auto original = quake.original(entry.path, 0);
+                expect(back && original && back->width == original->width && back->height == original->height,
+                       entry.path + " reads back at the original's size");
+                if (back) {
+                    auto file = scratch / ("quake-" + std::filesystem::path(entry.path).stem().string() + ".png");
+                    stbi_write_png(file.c_str(), back->width, back->height, 4, back->pixels.data(), back->width * 4);
+                }
+            }
+        }
+        while (!quake.levels_ready()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto quake_levels = quake.levels_using(jpg);
+        std::printf("     %s appears in %zu maps:", jpg.c_str(), quake_levels.size());
+        for (const auto& level : quake_levels) std::printf(" %s", level.name.c_str());
+        std::printf("\n");
+        expect(!quake_levels.empty(), "found Quake III maps that use it");
+    }
 
     std::printf("%s\n", failures ? "FAILED" : "all passed");
     return failures ? 1 : 0;

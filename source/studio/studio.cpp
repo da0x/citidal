@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 
 namespace studio {
 
@@ -45,7 +46,14 @@ std::pair<float, float> fitted(int width, int height, float most_width, float mo
 
 studio::studio(ui::window& owner) : window(owner) {
     games = engine::discover(problems);
-    if (!games.empty()) open_game(0);
+    if (games.empty()) return;
+    std::size_t first = 0;
+    std::ifstream remembered(platform::cache_folder() / "last-game");
+    std::string slug;
+    std::getline(remembered, slug);
+    for (std::size_t i = 0; i < games.size(); ++i)
+        if (games[i]->slug() == slug) first = i;
+    open_game(first);
 }
 
 studio::~studio() {
@@ -61,6 +69,10 @@ void studio::open_game(std::size_t number) {
     without_thumbnail.clear();
 
     game = games[number].get();
+    std::error_code made;
+    std::filesystem::create_directories(platform::cache_folder(), made);
+    std::ofstream(platform::cache_folder() / "last-game") << game->slug() << '\n';
+    query.clear();
     shelves = game->shelves();
     shelf = 0;
     current = pack::pack::open(platform::documents_folder() / "citadel" / game->slug());
@@ -260,8 +272,8 @@ void studio::draw() {
     if (!game) {
         ui::heading("No game found");
         ui::space(8);
-        ui::wrapped("citadel looks for Half-Life 2 in every Steam library on this machine. "
-                    "Install it from Steam, then open citadel again.");
+        ui::wrapped("citadel looks for Half-Life 2 and Quake III Arena in every Steam library on this machine. "
+                    "Install one from Steam, then open citadel again.");
         for (const auto& problem : problems) ui::bad(problem);
         ui::end_screen();
         return;
@@ -269,6 +281,7 @@ void studio::draw() {
     if (needs_filter) refilter();
 
     draw_top();
+    if (needs_filter) refilter();
     ui::space(4);
     const float height = ui::available_height() - ui::line_height();
     const float list_width = std::max(320.0f, ui::available_width() * 0.3f);
@@ -285,8 +298,13 @@ void studio::draw() {
 
 void studio::draw_top() {
     ui::heading("citadel");
-    ui::same_line(16);
-    ui::quiet(game->name() + "   " + shortened(game->location()));
+    for (std::size_t i = 0; i < games.size(); ++i) {
+        ui::same_line(i == 0 ? 20 : -1);
+        if (ui::tab(games[i]->name(), games[i].get() == game) && games[i].get() != game && !build_job.valid()) {
+            open_game(i);
+            return;
+        }
+    }
 
     std::vector<std::string> labels{changed_since_build ? "Build pack" : "Pack is built"};
     for (const auto& edition : game->editions()) labels.push_back("Play " + edition.name);
