@@ -93,3 +93,8 @@ folder you name. It never touches the game's folders.
 ```bash
 ./build/citadel_check ~/Pictures/some-photo.jpg /tmp/citadel-check
 ```
+
+## License
+
+GPL-3.0-only. See `LICENSE`. Dear ImGui (MIT) and stb (public domain or MIT) are fetched
+at build time under their own licenses.
