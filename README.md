@@ -12,7 +12,8 @@ ahead of its own art, so taking the pack out puts everything back.
 | Game | State |
 |---|---|
 | Half-Life 2, Episode One, Episode Two | working |
-| Portal, Portal 2 | next, on the same engine code |
+| Portal | working |
+| Portal 2 | working |
 | Quake III Arena | working |
 
 Each engine lives in its own folder under `source/engines/`, behind the interface in
@@ -66,8 +67,14 @@ Keys: Esc clears the search, then the selection. Q quits when you aren't typing.
   with a copy of every picture you used, named by its content, so the pack is complete on
   its own and can be moved to another machine.
 - Build files: `~/.cache/citadel/build/<game>/`. They can be deleted at any time.
-- The installed pack: `<game>/hl2/custom/citadel.vpk` for Half-Life 2, and
-  `<game>/baseq3/zz-citadel.pk3` for Quake III Arena.
+- The installed pack:
+
+  | Game | Pack |
+  |---|---|
+  | Half-Life 2 | `hl2/custom/citadel.vpk` |
+  | Portal | `portal/custom/citadel.vpk` |
+  | Portal 2 | `portal2_dlc3/pak01_dir.vpk` |
+  | Quake III Arena | `baseq3/zz-citadel.pk3` |
 
 ## How the Half-Life 2 pack works
 
@@ -87,6 +94,18 @@ and compares it with what it staged.
 
 "Where it appears" reads each map's texture table and the decals and overlays its entities
 place. Pictures painted onto models aren't found that way yet.
+
+## How the Portal packs work
+
+Portal is built like Half-Life 2: its `gameinfo.txt` mounts `portal/custom/*` first, and
+its pack is made with the `vpk` tool that ships with it.
+
+Portal 2 is different. Its `gameinfo.txt` lists no content: the engine mounts `update/`,
+then each `portal2_dlcN` folder with the highest number first, then `portal2/`, each
+one's `pak01_dir.vpk`. citadel's pack is `portal2_dlc3/pak01_dir.vpk`, which sits above
+everything except `update/`, so a texture Valve patched in `update/` can't be replaced
+this way. Portal 2 ships no `vpk` tool on Linux and reads version 1 packs, so citadel
+writes that format itself, and reads the pack back to check it like any other.
 
 ## How the Quake III Arena pack works
 

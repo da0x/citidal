@@ -36,10 +36,12 @@ struct level {
     std::string edition;
 };
 
-// A named group of surfaces, found by words in their names.
+// A named group of surfaces, found by words in their names, leaving out names with any
+// of the exceptions.
 struct shelf {
     std::string label;
     std::vector<std::string> words;
+    std::vector<std::string> except = {};
 };
 
 struct outcome {

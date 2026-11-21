@@ -10,6 +10,7 @@
 
 #include <stb_image_write.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <thread>
@@ -130,6 +131,49 @@ int main(int count, char** arguments) {
     for (const auto& level : levels) std::printf(" %s(%s)", level.name.c_str(), level.edition.c_str());
     std::printf("\n");
     expect(!levels.empty(), "found maps that use the poster");
+
+    for (auto& other : games) {
+        if (other->slug() != "portal" && other->slug() != "portal-2") continue;
+        auto& portal = *other;
+        std::printf("     %s at %s, %zu surfaces\n", portal.name().c_str(), portal.location().c_str(), portal.surfaces().size());
+        int readable = 0;
+        for (const auto& surface : portal.surfaces())
+            if (portal.original(surface.id, 64)) ++readable;
+        std::printf("     %d of %zu materials have a picture citadel can read\n", readable, portal.surfaces().size());
+        expect(readable * 10 >= int(portal.surfaces().size()) * 8, portal.name() + ": most materials read");
+
+        for (const auto& shelf : portal.shelves()) {
+            int count = 0;
+            std::string sample;
+            for (const auto& surface : portal.surfaces()) {
+                auto contains = [&](const std::string& word) { return surface.name.find(word) != std::string::npos; };
+                if (std::any_of(shelf.words.begin(), shelf.words.end(), contains) &&
+                    std::none_of(shelf.except.begin(), shelf.except.end(), contains)) {
+                    ++count;
+                    if (sample.empty()) sample = surface.name;
+                }
+            }
+            std::printf("     shelf %s: %d, such as %s\n", shelf.label.c_str(), count, sample.c_str());
+        }
+
+        while (!portal.levels_ready()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::string sign;
+        std::size_t most = 0;
+        for (const auto& surface : portal.surfaces()) {
+            if (surface.name.find("sign") == std::string::npos || !portal.original(surface.id, 64)) continue;
+            auto used = portal.levels_using(surface.id).size();
+            if (used > most) { most = used; sign = surface.id; }
+        }
+        std::printf("     most-used sign: %s, in %zu maps\n", sign.c_str(), most);
+        expect(!sign.empty() && most > 0, portal.name() + ": found a sign that maps use");
+
+        auto portal_pack = pack::pack::open(scratch / (portal.slug() + "-pack"));
+        if (auto adopted_here = portal_pack.adopt_picture(picture, error)) portal_pack.put(sign, *adopted_here);
+        auto portal_built = portal.build(portal_pack, scratch / (portal.slug() + "-staging"));
+        std::printf("     %s\n", portal_built.message.c_str());
+        expect(portal_built.ok, portal.name() + ": built a pack");
+        std::printf("     it would be installed as %s\n", portal.installed_pack().c_str());
+    }
 
     for (auto& other : games) {
         if (other->slug() != "quake-3-arena") continue;

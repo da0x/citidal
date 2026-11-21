@@ -18,13 +18,16 @@ struct edition_info {
 };
 
 // What makes one Source game different from another: where Steam installs it, its game
-// folders (in the order their content stacks), where a pack goes, and its shelves.
+// folders, where a pack goes and how it is made, and its shelves. An edition with no
+// Steam app is a folder of content that is played from the first edition.
 struct description {
     std::string slug;
     std::string name;
     std::string steam_folder;
     std::vector<edition_info> editions;
-    std::string pack_folder;
+    std::vector<std::string> folders;
+    std::string pack_file;
+    bool writes_own_pack = false;
     std::vector<engine::shelf> shelves;
 };
 

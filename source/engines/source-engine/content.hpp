@@ -18,6 +18,10 @@ namespace source_engine {
 class content {
 public:
     static std::optional<content> mount(const std::filesystem::path& root, const std::string& game_folder, std::string& error);
+    // For games whose gameinfo.txt doesn't list their content, as in Portal 2: each folder's
+    // pak01_dir.vpk and then its loose files, the first folder winning.
+    static std::optional<content> mount_folders(const std::filesystem::path& root, const std::vector<std::string>& folders,
+                                                std::string& error);
 
     bool contains(const std::string& path) const;
     std::optional<std::vector<std::uint8_t>> read(const std::string& path, std::uint64_t offset = 0,
@@ -27,6 +31,9 @@ public:
     std::size_t source_count() const { return sources.size(); }
 
 private:
+    bool add_archive(const std::filesystem::path& directory_file, const std::string& owner, std::string& error);
+    void add_folder(const std::filesystem::path& folder, const std::string& owner);
+
     struct source {
         std::string owner;
         std::filesystem::path folder;

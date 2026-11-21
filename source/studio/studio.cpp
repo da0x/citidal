@@ -95,8 +95,10 @@ void studio::refilter() {
         if (!words.empty() && name.find(words) == std::string::npos) continue;
         bool keep = true;
         if (shelf < count) {
-            keep = std::any_of(shelves[std::size_t(shelf)].words.begin(), shelves[std::size_t(shelf)].words.end(),
-                               [&](const std::string& word) { return name.find(word) != std::string::npos; });
+            const auto& chosen_shelf = shelves[std::size_t(shelf)];
+            auto contains = [&](const std::string& word) { return name.find(word) != std::string::npos; };
+            keep = std::any_of(chosen_shelf.words.begin(), chosen_shelf.words.end(), contains) &&
+                   std::none_of(chosen_shelf.except.begin(), chosen_shelf.except.end(), contains);
         } else if (shelf == count) {
             keep = current->find(surfaces[i].id) != nullptr;
         }

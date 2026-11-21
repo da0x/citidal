@@ -4,6 +4,7 @@
 #include "platform/install.hpp"
 #include "platform/process.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <iterator>
@@ -17,18 +18,42 @@ constexpr const char* pack_name = "citadel";
 }
 
 // Half-Life 2 and its two episodes share one install, and all three mount hl2/custom/
-// ahead of their own content, so one pack reaches every one of them.
+// ahead of their own content, so one pack reaches every one of them. Portal is built the
+// same way. Portal 2 lists no content in its gameinfo.txt: the engine mounts update/,
+// then each portal2_dlcN with the highest number first, then portal2/, each one's
+// pak01_dir.vpk. A pack in a new portal2_dlc3 sits above everything but update/. Portal 2
+// ships no vpk tool on Linux and reads version 1 packs, so citadel writes that one itself.
 const std::vector<description>& known_games() {
     static const std::vector<description> games{
         {"half-life-2", "Half-Life 2", "Half-Life 2",
          {{"hl2", "Half-Life 2", 220}, {"episodic", "Episode One", 380}, {"ep2", "Episode Two", 420}},
-         "hl2/custom",
+         {},
+         "hl2/custom/citadel.vpk",
+         false,
          {{"Posters", {"poster"}},
           {"Signs", {"sign"}},
           {"Billboards", {"billboard"}},
-          {"Screens", {"screen", "monitor"}},
+          {"Screens", {"screen", "monitor"}, {"widescreen"}},
           {"Paintings", {"painting", "picture", "portrait", "photo"}},
           {"Menu backgrounds", {"console/background", "console/ep1_background", "console/ep2_background"}}}},
+        {"portal", "Portal", "Portal",
+         {{"portal", "Portal", 400}},
+         {},
+         "portal/custom/citadel.vpk",
+         false,
+         {{"Signs", {"sign"}},
+          {"Posters", {"poster"}},
+          {"Screens", {"screen", "monitor"}, {"widescreen"}},
+          {"Menu backgrounds", {"console/background"}}}},
+        {"portal-2", "Portal 2", "Portal 2",
+         {{"portal2", "Portal 2", 620}, {"portal2_dlc1", "Co-op", 0}, {"portal2_dlc2", "Peer Review", 0}, {"update", "Update", 0}},
+         {"update", "portal2_dlc2", "portal2_dlc1", "portal2"},
+         "portal2_dlc3/pak01_dir.vpk",
+         true,
+         {{"Signs", {"sign"}},
+          {"Posters", {"poster"}},
+          {"Screens", {"screen", "monitor"}, {"widescreen"}},
+          {"Menu backgrounds", {"console/portal2_product"}}}},
     };
     return games;
 }
@@ -52,7 +77,7 @@ std::unique_ptr<source_game> source_game::open(const description& kind, const st
     std::string widest;
     for (const auto& edition : kind.editions) {
         if (!std::filesystem::exists(root / edition.folder / "gameinfo.txt")) continue;
-        game->available_editions.push_back({edition.folder, edition.name});
+        if (edition.app) game->available_editions.push_back({edition.folder, edition.name});
         widest = edition.folder;
     }
     if (widest.empty()) {
@@ -60,7 +85,7 @@ std::unique_ptr<source_game> source_game::open(const description& kind, const st
         return nullptr;
     }
 
-    game->files = content::mount(root, widest, error);
+    game->files = kind.folders.empty() ? content::mount(root, widest, error) : content::mount_folders(root, kind.folders, error);
     if (!game->files) return nullptr;
 
     for (const auto& path : game->files->files("materials/", ".vmt")) {
@@ -125,7 +150,7 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
     std::filesystem::create_directories(folder, code);
     if (code) return {false, "Can't make " + folder.string() + ": " + code.message()};
 
-    int written = 0;
+    std::vector<std::pair<std::string, std::vector<std::uint8_t>>> staged;
     for (const auto& item : pack.replacements()) {
         auto original = load_texture(item.surface, 0);
         if (!original) return {false, "Can't read the game's texture for " + item.surface};
@@ -139,32 +164,41 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
         std::ofstream out(destination, std::ios::binary);
         out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
         if (!out) return {false, "Can't write " + destination.string()};
-        ++written;
+        staged.emplace_back(original->path, std::move(bytes));
     }
-    if (written == 0) return {false, "The pack has no pictures yet"};
+    if (staged.empty()) return {false, "The pack has no pictures yet"};
 
-    auto result = platform::run({platform::source_vpk_tool(root).string(), pack_name}, staging,
-                                platform::source_tool_environment(root));
-    // The Linux vpk tool crashes on exit even after it has written a good pack, so its
-    // exit code says nothing. The pack is read back and compared with what was staged.
     const auto built = staging / (std::string(pack_name) + ".vpk");
     std::string problem;
+    std::string tool_output;
+    if (kind.writes_own_pack) {
+        if (!vpk::write(built, staged, problem)) return {false, problem};
+    } else {
+        tool_output = platform::run({platform::source_vpk_tool(root).string(), pack_name}, staging,
+                                    platform::source_tool_environment(root)).output;
+    }
+
+    // The Linux vpk tool crashes on exit even after it has written a good pack, so its
+    // exit code says nothing. Either way, the pack is read back and compared with what was
+    // staged.
     auto packed = vpk::archive::open(built, problem);
-    if (!packed) return {false, "Valve's vpk tool made no pack: " + result.output};
+    if (!packed) return {false, kind.writes_own_pack ? "The pack can't be read back: " + problem : "Valve's vpk tool made no pack: " + tool_output};
     std::size_t matched = 0;
     for (const auto& entry : packed->entries()) {
-        std::ifstream in(folder / entry.path, std::ios::binary);
-        std::vector<std::uint8_t> staged((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (staged != packed->read(entry)) return {false, "The pack's copy of " + entry.path + " doesn't match what was staged"};
+        auto found = std::find_if(staged.begin(), staged.end(), [&](const auto& file) { return file.first == entry.path; });
+        if (found == staged.end() || found->second != packed->read(entry))
+            return {false, "The pack's copy of " + entry.path + " doesn't match what was staged"};
         ++matched;
     }
-    if (matched != std::size_t(written))
+    const auto written = staged.size();
+    if (matched != written)
         return {false, "The pack holds " + std::to_string(matched) + " of " + std::to_string(written) + " textures"};
-    return {true, "Built " + std::to_string(written) + (written == 1 ? " texture" : " textures") + " with Valve's vpk tool"};
+    return {true, "Built " + std::to_string(written) + (written == 1 ? " texture" : " textures") +
+                      (kind.writes_own_pack ? "" : " with Valve's vpk tool")};
 }
 
 std::filesystem::path source_game::installed_pack() const {
-    return root / kind.pack_folder / (std::string(pack_name) + ".vpk");
+    return root / kind.pack_file;
 }
 
 engine::outcome source_game::install(const std::filesystem::path& staging) const {
@@ -173,7 +207,7 @@ engine::outcome source_game::install(const std::filesystem::path& staging) const
     std::filesystem::create_directories(installed_pack().parent_path(), code);
     std::filesystem::copy_file(built, installed_pack(), std::filesystem::copy_options::overwrite_existing, code);
     if (code) return {false, "Can't copy the pack into the game: " + code.message()};
-    return {true, "The pack is in the game, in " + kind.pack_folder};
+    return {true, "The pack is in the game, as " + kind.pack_file};
 }
 
 engine::outcome source_game::uninstall() const {
@@ -182,12 +216,14 @@ engine::outcome source_game::uninstall() const {
         if (code) return {false, code.message()};
         return {true, "The pack wasn't in the game"};
     }
+    if (kind.writes_own_pack) std::filesystem::remove(installed_pack().parent_path(), code);
     return {true, "Took the pack out of the game"};
 }
 
 engine::outcome source_game::launch(const std::string& edition, const std::string& level) const {
     auto* found = edition_by_folder(edition);
     if (!found) return {false, "Unknown edition " + edition};
+    if (!found->app) found = &kind.editions.front();
     std::vector<std::string> arguments;
     if (!level.empty()) arguments = {"+map", level};
     if (!platform::launch(platform::steam_launch(found->app, arguments)))

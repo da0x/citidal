@@ -62,45 +62,61 @@ std::optional<content> content::mount(const std::filesystem::path& root, const s
         if (path.value.find('|') != std::string::npos) continue;
         if (path.value.find("sound") != std::string::npos) continue;
 
-        source item;
-        item.owner = path.value.substr(0, path.value.find('/'));
+        const std::string owner = path.value.substr(0, path.value.find('/'));
         if (path.value.ends_with(".vpk")) {
             auto directory_file = root / (path.value.substr(0, path.value.size() - 4) + "_dir.vpk");
-            if (!std::filesystem::exists(directory_file)) continue;
-            std::string problem;
-            item.archive = vpk::archive::open(directory_file, problem);
-            if (!item.archive) {
-                error = problem;
-                return std::nullopt;
-            }
+            if (std::filesystem::exists(directory_file) && !result.add_archive(directory_file, owner, error)) return std::nullopt;
         } else {
-            item.folder = root / path.value;
-            for (const char* top : {"materials", "maps"}) {
-                std::error_code code;
-                if (!std::filesystem::is_directory(item.folder / top, code)) continue;
-                for (auto it = std::filesystem::recursive_directory_iterator(item.folder / top, code);
-                     it != std::filesystem::recursive_directory_iterator(); it.increment(code)) {
-                    if (code) break;
-                    if (it->is_regular_file()) item.loose.push_back(std::filesystem::relative(it->path(), item.folder));
-                }
-            }
+            result.add_folder(root / path.value, owner);
         }
-
-        const auto number = std::uint32_t(result.sources.size());
-        if (item.archive) {
-            const auto& entries = item.archive->entries();
-            for (std::uint32_t i = 0; i < entries.size(); ++i) result.index.try_emplace(entries[i].path, location{number, i});
-        } else {
-            for (std::uint32_t i = 0; i < item.loose.size(); ++i)
-                result.index.try_emplace(lowercase(item.loose[i].generic_string()), location{number, i});
-        }
-        result.sources.push_back(std::move(item));
     }
     if (result.sources.empty()) {
         error = "gameinfo.txt in " + game_folder + " names no content that is installed";
         return std::nullopt;
     }
     return result;
+}
+
+std::optional<content> content::mount_folders(const std::filesystem::path& root, const std::vector<std::string>& folders,
+                                              std::string& error) {
+    content result;
+    for (const auto& folder : folders) {
+        if (!std::filesystem::is_directory(root / folder)) continue;
+        if (auto directory_file = root / folder / "pak01_dir.vpk"; std::filesystem::exists(directory_file))
+            if (!result.add_archive(directory_file, folder, error)) return std::nullopt;
+        result.add_folder(root / folder, folder);
+    }
+    if (result.sources.empty()) {
+        error = "None of the game's folders are in " + root.string();
+        return std::nullopt;
+    }
+    return result;
+}
+
+bool content::add_archive(const std::filesystem::path& directory_file, const std::string& owner, std::string& error) {
+    auto opened = vpk::archive::open(directory_file, error);
+    if (!opened) return false;
+    const auto number = std::uint32_t(sources.size());
+    const auto& entries = opened->entries();
+    for (std::uint32_t i = 0; i < entries.size(); ++i) index.try_emplace(entries[i].path, location{number, i});
+    sources.push_back({owner, {}, std::move(opened), {}});
+    return true;
+}
+
+void content::add_folder(const std::filesystem::path& folder, const std::string& owner) {
+    source item{owner, folder, std::nullopt, {}};
+    for (const char* top : {"materials", "maps"}) {
+        std::error_code code;
+        if (!std::filesystem::is_directory(folder / top, code)) continue;
+        for (auto it = std::filesystem::recursive_directory_iterator(folder / top, code);
+             it != std::filesystem::recursive_directory_iterator(); it.increment(code)) {
+            if (code) break;
+            if (it->is_regular_file()) item.loose.push_back(std::filesystem::relative(it->path(), folder));
+        }
+    }
+    const auto number = std::uint32_t(sources.size());
+    for (std::uint32_t i = 0; i < item.loose.size(); ++i) index.try_emplace(lowercase(item.loose[i].generic_string()), location{number, i});
+    sources.push_back(std::move(item));
 }
 
 bool content::contains(const std::string& path) const {

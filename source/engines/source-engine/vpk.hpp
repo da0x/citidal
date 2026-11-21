@@ -5,6 +5,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace source_engine::vpk {
@@ -36,5 +37,10 @@ private:
     std::uint64_t data_start = 0;
     std::vector<entry> items;
 };
+
+// Writes a single-file version 1 pack, the format Portal 2 reads, with every file's data
+// after the directory.
+bool write(const std::filesystem::path& file,
+           const std::vector<std::pair<std::string, std::vector<std::uint8_t>>>& files, std::string& error);
 
 }

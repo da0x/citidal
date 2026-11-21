@@ -1,6 +1,9 @@
 #include "engines/source-engine/vpk.hpp"
 
+#include <zlib.h>
+
 #include <algorithm>
+#include <map>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -140,6 +143,59 @@ std::vector<std::uint8_t> archive::read(const entry& item, std::uint64_t offset,
         if (!in) return {};
     }
     return bytes;
+}
+
+bool write(const std::filesystem::path& file,
+           const std::vector<std::pair<std::string, std::vector<std::uint8_t>>>& files, std::string& error) {
+    std::map<std::string, std::map<std::string, std::vector<std::pair<std::string, const std::vector<std::uint8_t>*>>>> tree;
+    for (const auto& [path, bytes] : files) {
+        auto slash = path.rfind('/');
+        std::string folder = slash == std::string::npos ? " " : path.substr(0, slash);
+        std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+        auto dot = name.rfind('.');
+        std::string extension = dot == std::string::npos ? " " : name.substr(dot + 1);
+        if (dot != std::string::npos) name.resize(dot);
+        tree[extension][folder].emplace_back(name, &bytes);
+    }
+
+    std::vector<std::uint8_t> directory, data;
+    auto text = [&](const std::string& value) {
+        directory.insert(directory.end(), value.begin(), value.end());
+        directory.push_back(0);
+    };
+    auto number = [&](std::uint64_t value, int size) {
+        for (int i = 0; i < size; ++i) directory.push_back(std::uint8_t(value >> (8 * i)));
+    };
+    for (const auto& [extension, folders] : tree) {
+        text(extension);
+        for (const auto& [folder, names] : folders) {
+            text(folder);
+            for (const auto& [name, bytes] : names) {
+                text(name);
+                number(crc32(0, bytes->data(), uInt(bytes->size())), 4);
+                number(0, 2);
+                number(inside_directory, 2);
+                number(data.size(), 4);
+                number(bytes->size(), 4);
+                number(0xffff, 2);
+                data.insert(data.end(), bytes->begin(), bytes->end());
+            }
+            text("");
+        }
+        text("");
+    }
+    text("");
+
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    const std::uint32_t header[3] = {signature, 1, std::uint32_t(directory.size())};
+    out.write(reinterpret_cast<const char*>(header), sizeof header);
+    out.write(reinterpret_cast<const char*>(directory.data()), std::streamsize(directory.size()));
+    out.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+    if (!out) {
+        error = "Can't write " + file.string();
+        return false;
+    }
+    return true;
 }
 
 }
