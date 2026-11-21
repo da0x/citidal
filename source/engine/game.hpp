@@ -44,6 +44,14 @@ struct shelf {
     std::vector<std::string> except = {};
 };
 
+// The size a picture goes into the game at, and why it isn't bigger when that's worth
+// saying.
+struct resolution {
+    int width = 0;
+    int height = 0;
+    std::string note;
+};
+
 struct outcome {
     bool ok = false;
     std::string message;
@@ -63,6 +71,7 @@ public:
     virtual const std::vector<surface>& surfaces() const = 0;
     virtual std::vector<shelf> shelves() const = 0;
     virtual std::optional<art> original(const std::string& surface, int at_least) const = 0;
+    virtual resolution resolution_for(const pack::replacement& item, int picture_width, int picture_height) const = 0;
 
     virtual bool levels_ready() const = 0;
     virtual std::vector<level> levels_using(const std::string& surface) const = 0;

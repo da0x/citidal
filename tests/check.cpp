@@ -4,6 +4,8 @@
 
 #include "engine/game.hpp"
 #include "engines/id-tech-3/zip.hpp"
+#include "engines/source-engine/material.hpp"
+#include "engines/source-engine/vpk.hpp"
 #include "engines/source-engine/vtf.hpp"
 #include "image/image.hpp"
 #include "pack/pack.hpp"
@@ -13,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <thread>
 
 namespace {
@@ -122,6 +125,25 @@ int main(int count, char** arguments) {
     auto built = game.build(reopened, scratch / "staging");
     std::printf("     %s\n", built.message.c_str());
     expect(built.ok, "built the pack");
+    {
+        auto packed = source_engine::vpk::archive::open(scratch / "staging" / "citadel.vpk", error);
+        int width = 0;
+        std::string scale;
+        if (packed)
+            for (const auto& entry : packed->entries()) {
+                auto bytes = packed->read(entry);
+                if (entry.path == "materials/decals/decal_posters001a.vtf")
+                    if (auto info = source_engine::vtf::inspect(bytes)) width = info->width;
+                if (entry.path == "materials/decals/decal_posters001a.vmt") {
+                    auto tokens = source_engine::keyvalue_tokens(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+                    for (std::size_t i = 0; i + 1 < tokens.size(); ++i)
+                        if (tokens[i] == "$decalscale") scale = tokens[i + 1];
+                }
+            }
+        std::printf("     the poster went in %d wide with $decalscale %s\n", width, scale.c_str());
+        expect(width > 512 && !scale.empty() && std::atof(scale.c_str()) * width == 0.25 * 512,
+               "a sharper decal covers the same part of the wall");
+    }
 
     auto sharing = pack::pack::open(scratch / "sharing-pack");
     if (auto adopted_here = sharing.adopt_picture(picture, error)) {

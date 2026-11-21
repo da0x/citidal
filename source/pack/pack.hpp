@@ -38,5 +38,7 @@ private:
 };
 
 image::picture render(const replacement& item, const image::picture& photo, const image::picture& original);
+// The same, at width × height instead of the original's size.
+image::picture render(const replacement& item, const image::picture& photo, const image::picture& original, int width, int height);
 
 }

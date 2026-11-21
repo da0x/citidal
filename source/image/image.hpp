@@ -50,6 +50,9 @@ struct size {
 
 size placed_size(int source_width, int source_height, int width, int height, const placement& place);
 picture compose(const picture& source, int width, int height, const placement& place);
+// How many times a width × height space can be doubled while the picture placed in it
+// still has a pixel of its own for every pixel, up to `most` on either side.
+int sharpest_scale(int source_width, int source_height, int width, int height, const placement& place, int most);
 void apply_edges(picture& target, const picture& original, edges kind);
 
 }

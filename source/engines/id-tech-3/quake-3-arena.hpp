@@ -21,6 +21,7 @@ public:
     const std::vector<engine::surface>& surfaces() const override { return all_surfaces; }
     std::vector<engine::shelf> shelves() const override;
     std::optional<engine::art> original(const std::string& surface, int at_least) const override;
+    engine::resolution resolution_for(const pack::replacement& item, int picture_width, int picture_height) const override;
 
     bool levels_ready() const override;
     std::vector<engine::level> levels_using(const std::string& surface) const override;

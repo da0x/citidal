@@ -134,6 +134,12 @@ std::optional<engine::art> quake_3_arena::original(const std::string& surface, i
     return result;
 }
 
+engine::resolution quake_3_arena::resolution_for(const pack::replacement& item, int, int) const {
+    auto found = original(item.surface, 1);
+    if (!found) return {};
+    return {found->width, found->height, ""};
+}
+
 bool quake_3_arena::levels_ready() const {
     if (index) return true;
     if (!index_job.valid() || index_job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;

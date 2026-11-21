@@ -11,7 +11,21 @@ namespace source_engine {
 namespace {
 
 constexpr int entity_lump = 0;
+constexpr int texture_data_lump = 2;
+constexpr int texture_info_lump = 6;
+constexpr int face_lump = 7;
 constexpr int texture_name_lump = 43;
+constexpr int texture_name_table_lump = 44;
+constexpr int hdr_face_lump = 58;
+constexpr std::size_t face_size = 56;
+constexpr std::size_t texture_info_size = 72;
+constexpr std::size_t texture_data_size = 32;
+
+template <typename T> T number_at(const std::vector<std::uint8_t>& bytes, std::size_t at) {
+    T value{};
+    if (at + sizeof(T) <= bytes.size()) std::memcpy(&value, bytes.data() + at, sizeof(T));
+    return value;
+}
 constexpr std::size_t header_size = 8 + 64 * 16;
 
 bool is_integer(std::string_view text) {
@@ -63,6 +77,29 @@ map_index map_index::build(const content& files) {
             std::string entry(names.begin() + std::ptrdiff_t(start), end);
             if (!entry.empty()) materials.insert(original_material(entry, name));
             start = std::size_t(end - names.begin()) + 1;
+        }
+
+        // Faces name a texture info, which names texture data, which names an entry in the
+        // texture name table.
+        auto faces = lump(face_lump);
+        if (faces.empty()) faces = lump(hdr_face_lump);
+        auto infos = lump(texture_info_lump);
+        auto datas = lump(texture_data_lump);
+        auto table = lump(texture_name_table_lump);
+        std::set<std::int32_t> painted;
+        for (std::size_t at = 0; at + face_size <= faces.size(); at += face_size) {
+            const auto info = number_at<std::int16_t>(faces, at + 10);
+            if (info < 0 || std::size_t(info + 1) * texture_info_size > infos.size()) continue;
+            painted.insert(number_at<std::int32_t>(infos, std::size_t(info) * texture_info_size + 68));
+        }
+        for (auto data : painted) {
+            if (data < 0 || std::size_t(data + 1) * texture_data_size > datas.size()) continue;
+            const auto entry = number_at<std::int32_t>(datas, std::size_t(data) * texture_data_size + 12);
+            if (entry < 0 || std::size_t(entry + 1) * 4 > table.size()) continue;
+            const auto offset = number_at<std::int32_t>(table, std::size_t(entry) * 4);
+            if (offset < 0 || std::size_t(offset) >= names.size()) continue;
+            auto start = names.begin() + offset;
+            result.walls.insert(original_material(std::string(start, std::find(start, names.end(), 0)), name));
         }
 
         auto entities = lump(entity_lump);

@@ -166,7 +166,11 @@ std::filesystem::path pack::picture_file(const std::string& picture) const {
 }
 
 image::picture render(const replacement& item, const image::picture& photo, const image::picture& original) {
-    auto result = image::compose(photo, original.width, original.height, item.placement);
+    return render(item, photo, original, original.width, original.height);
+}
+
+image::picture render(const replacement& item, const image::picture& photo, const image::picture& original, int width, int height) {
+    auto result = image::compose(photo, width, height, item.placement);
     image::apply_edges(result, original, item.edges);
     return result;
 }

@@ -82,9 +82,16 @@ Half-Life 2, Episode One and Episode Two share one install, and each one's `game
 mounts `hl2/custom/*` ahead of its own content. One pack there reaches all three.
 
 For each surface, citadel finds the material's `$basetexture`, reads the game's texture,
-and writes a new one at the same path and the same size, which matters because a decal's
-size in the world comes from its texture's size. The texture's flags, such as clamping or
-having no mipmaps, are kept. It is written as VTF 7.2 in DXT1, or DXT5 when it has
+and writes a new one at the same path. It goes in as sharp as your picture allows: the
+game's size doubled as many times as the picture still has a pixel for every pixel, up to
+4096 on a side. The studio shows the size under the previews.
+
+Models, overlays and menu screens stretch a texture over the same place whatever its size.
+Decals and map walls don't: the engine sizes them by their pixels. So every material that
+draws a sharper texture is written into the pack too, with its `$decalscale` divided to
+match, and a decal covers the same part of the wall as before. A texture that any map
+paints on its walls keeps the game's size, because nothing in its material could shrink it
+back. The texture's flags, such as clamping or having no mipmaps, are kept. It is written as VTF 7.2 in DXT1, or DXT5 when it has
 see-through parts, with a full set of mipmaps unless the original had none.
 
 Packs are made by Valve's own `vpk` tool, which ships with the game on Linux as

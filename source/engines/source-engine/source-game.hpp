@@ -8,6 +8,7 @@
 #include <future>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 
 namespace source_engine {
 
@@ -44,6 +45,7 @@ public:
     const std::vector<engine::surface>& surfaces() const override { return all_surfaces; }
     std::vector<engine::shelf> shelves() const override { return kind.shelves; }
     std::optional<engine::art> original(const std::string& surface, int at_least) const override;
+    engine::resolution resolution_for(const pack::replacement& item, int picture_width, int picture_height) const override;
 
     bool levels_ready() const override;
     std::vector<engine::level> levels_using(const std::string& surface) const override;
@@ -63,6 +65,14 @@ private:
     };
     std::optional<texture> load_texture(const std::string& material, int at_least) const;
 
+    // What the studio learns in the background once a game opens: which maps use each
+    // material, and which materials draw each texture.
+    struct survey {
+        map_index maps;
+        std::unordered_map<std::string, std::vector<std::string>> drawn_by;
+    };
+    const survey* surveyed() const;
+
     const edition_info* edition_by_folder(const std::string& folder) const;
     std::string edition_name(const std::string& folder) const;
 
@@ -71,8 +81,7 @@ private:
     std::optional<content> files;
     std::vector<engine::surface> all_surfaces;
     std::vector<engine::edition> available_editions;
-    mutable std::future<map_index> index_job;
-    mutable std::optional<map_index> index;
+    std::shared_future<survey> survey_job;
 };
 
 }

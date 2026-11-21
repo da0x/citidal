@@ -29,6 +29,10 @@ private:
         ui::texture original_texture;
         std::string picture;
         image::picture photo;
+        int photo_width = 0;
+        int photo_height = 0;
+        engine::resolution goes_in;
+        bool goes_in_knew_maps = false;
         ui::texture result_texture;
         bool needs_render = false;
     };

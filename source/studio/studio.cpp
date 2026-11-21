@@ -125,6 +125,8 @@ void studio::select(const std::string& surface) {
         std::string error;
         if (auto photo = image::load(current->picture_file(item->picture), error)) {
             chosen.picture = item->picture;
+            chosen.photo_width = photo->width;
+            chosen.photo_height = photo->height;
             chosen.photo = within(*photo, photo_preview_size);
             chosen.needs_render = true;
         } else {
@@ -155,6 +157,8 @@ void studio::use_picture(const std::string& file) {
     }
     current->put(chosen.surface, *adopted);
     chosen.picture = *adopted;
+    chosen.photo_width = photo->width;
+    chosen.photo_height = photo->height;
     chosen.photo = within(*photo, photo_preview_size);
     chosen.needs_render = true;
     status = "Put " + std::filesystem::path(file).filename().string() + " on " + chosen.surface;
@@ -168,6 +172,8 @@ void studio::render_selection() {
     const auto* item = current->find(chosen.surface);
     if (!item || chosen.photo.empty() || chosen.preview_original.empty()) return;
     chosen.result_texture = ui::upload(pack::render(*item, chosen.photo, chosen.preview_original));
+    chosen.goes_in = game->resolution_for(*item, chosen.photo_width, chosen.photo_height);
+    chosen.goes_in_knew_maps = game->levels_ready();
 }
 
 void studio::changed() {
@@ -430,6 +436,17 @@ void studio::draw_detail(float width, float height) {
     ui::end_area();
 
     ui::space(4);
+    if (item && chosen.result_texture) {
+        if (!chosen.goes_in_knew_maps && game->levels_ready()) chosen.needs_render = true;
+        if (chosen.goes_in.width > 0) {
+            const int times = chosen.original->width > 0 ? chosen.goes_in.width / chosen.original->width : 1;
+            ui::text("Goes into the game at " + std::to_string(chosen.goes_in.width) + " × " + std::to_string(chosen.goes_in.height) +
+                     (times > 1 ? ", " + std::to_string(times) + " times as sharp" : ""));
+            if (!chosen.goes_in.note.empty()) ui::quiet_wrapped(chosen.goes_in.note);
+        }
+        if (!chosen.goes_in_knew_maps) window.keep_drawing();
+        ui::space(4);
+    }
     if (item) draw_controls(*item);
     ui::space(8);
     draw_levels();

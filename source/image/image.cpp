@@ -96,6 +96,18 @@ size placed_size(int source_width, int source_height, int width, int height, con
     return {from_width * scale, from_height * scale};
 }
 
+int sharpest_scale(int source_width, int source_height, int width, int height, const placement& place, int most) {
+    const auto placed = placed_size(source_width, source_height, width, height, place);
+    if (placed.width <= 0 || placed.height <= 0) return 1;
+    const bool turned = ((place.quarter_turns % 4) + 4) % 2 == 1;
+    const double across = (turned ? source_height : source_width) / placed.width;
+    const double down = (turned ? source_width : source_height) / placed.height;
+    const double detail = std::min(across, down);
+    int scale = 1;
+    while (scale * 2 <= detail && width * scale * 2 <= most && height * scale * 2 <= most) scale *= 2;
+    return scale;
+}
+
 picture compose(const picture& unturned, int width, int height, const placement& place) {
     picture result = blank(width, height, {0, 0, 0, 255});
     if (unturned.empty() || width <= 0 || height <= 0) return result;

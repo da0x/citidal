@@ -14,6 +14,11 @@ namespace source_engine {
 namespace {
 
 constexpr const char* pack_name = "citadel";
+constexpr int largest_texture = 4096;
+
+std::string material_name(const std::string& material) {
+    return material.substr(10, material.size() - 14);
+}
 
 }
 
@@ -94,7 +99,15 @@ std::unique_ptr<source_game> source_game::open(const description& kind, const st
     }
 
     const content* source = &*game->files;
-    game->index_job = std::async(std::launch::async, [source] { return map_index::build(*source); });
+    std::vector<std::string> materials;
+    for (const auto& surface : game->all_surfaces) materials.push_back(surface.id);
+    game->survey_job = std::async(std::launch::async, [source, materials = std::move(materials)] {
+                           survey found{map_index::build(*source), {}};
+                           for (const auto& material : materials)
+                               if (auto texture = base_texture(*source, material); !texture.empty())
+                                   found.drawn_by[texture].push_back(material);
+                           return found;
+                       }).share();
     return game;
 }
 
@@ -127,18 +140,42 @@ std::optional<engine::art> source_game::original(const std::string& surface, int
     return result;
 }
 
+const source_game::survey* source_game::surveyed() const {
+    if (!survey_job.valid() || survey_job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
+    return &survey_job.get();
+}
+
 bool source_game::levels_ready() const {
-    if (index) return true;
-    if (!index_job.valid() || index_job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
-    index = index_job.get();
-    return true;
+    return surveyed() != nullptr;
+}
+
+// Models, overlays and screens stretch a texture over the same place whatever its size,
+// so a sharper one only looks sharper. The engine sizes decals and wall textures by their
+// pixels: decals are given a smaller $decalscale to match, and a texture any map paints
+// on its walls keeps the game's size.
+engine::resolution source_game::resolution_for(const pack::replacement& item, int picture_width, int picture_height) const {
+    auto path = base_texture(*files, item.surface);
+    auto header = path.empty() ? std::nullopt : files->read(path, 0, vtf::header_read_size);
+    auto info = header ? vtf::inspect(*header) : std::nullopt;
+    if (!info) return {};
+    const int width = info->width, height = info->height;
+    const auto* known = surveyed();
+    if (!known) return {width, height, "Looking through the maps to see how big it can go"};
+    if (auto users = known->drawn_by.find(path); users != known->drawn_by.end())
+        for (const auto& material : users->second)
+            if (known->maps.on_walls(material_name(material)))
+                return {width, height, "This texture is also painted on map walls, where more pixels would draw it bigger, so it keeps the game's size"};
+    const int scale = image::sharpest_scale(picture_width, picture_height, width, height, item.placement, largest_texture);
+    if (scale > 1) return {width * scale, height * scale, ""};
+    if (width * 2 > largest_texture || height * 2 > largest_texture) return {width, height, "The game's texture is already as big as the game takes"};
+    return {width, height, "Your picture has no more detail than the game's size"};
 }
 
 std::vector<engine::level> source_game::levels_using(const std::string& surface) const {
     std::vector<engine::level> levels;
-    if (!levels_ready()) return levels;
-    std::string name = surface.substr(10, surface.size() - 14);
-    for (const auto& map : index->using_material(name)) levels.push_back({map.name, map.owner});
+    const auto* known = surveyed();
+    if (!known) return levels;
+    for (const auto& map : known->maps.using_material(material_name(surface))) levels.push_back({map.name, map.owner});
     return levels;
 }
 
@@ -151,28 +188,43 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
     if (code) return {false, "Can't make " + folder.string() + ": " + code.message()};
 
     // Several materials can draw one texture, and the game holds one picture per texture.
-    auto shown = [](const std::string& surface) { return surface.substr(10, surface.size() - 14); };
+    const auto& known = survey_job.get();
     std::vector<std::pair<std::string, std::vector<std::uint8_t>>> staged;
     std::vector<std::string> staged_for;
+    std::size_t sharper = 0;
     for (const auto& item : pack.replacements()) {
         auto original = load_texture(item.surface, 0);
         if (!original) return {false, "Can't read the game's texture for " + item.surface};
         for (std::size_t i = 0; i < staged.size(); ++i)
             if (staged[i].first == original->path)
-                return {false, shown(staged_for[i]) + " and " + shown(item.surface) + " are one texture in the game (" +
+                return {false, material_name(staged_for[i]) + " and " + material_name(item.surface) + " are one texture in the game (" +
                                    original->path.substr(10) + "), so they can't have different pictures. Remove one of them."};
         std::string error;
         auto photo = image::load(pack.picture_file(item.picture), error);
         if (!photo) return {false, "Can't read the picture for " + item.surface + ": " + error};
 
-        auto bytes = vtf::encode(pack::render(item, *photo, original->picture), original->info.flags);
-        auto destination = folder / original->path;
+        auto size = resolution_for(item, photo->width, photo->height);
+        if (size.width <= 0) return {false, "Can't read the game's texture for " + item.surface};
+        auto bytes = vtf::encode(pack::render(item, *photo, original->picture, size.width, size.height), original->info.flags);
+        staged.emplace_back(original->path, std::move(bytes));
+        staged_for.push_back(item.surface);
+
+        if (const int scale = size.width / original->info.width; scale > 1) {
+            ++sharper;
+            if (auto users = known.drawn_by.find(original->path); users != known.drawn_by.end())
+                for (const auto& material : users->second) {
+                    auto text = with_decal_scale(*files, material, scale);
+                    if (!text) return {false, "Can't read the material " + material};
+                    staged.emplace_back(material, std::vector<std::uint8_t>(text->begin(), text->end()));
+                }
+        }
+    }
+    for (const auto& [path, bytes] : staged) {
+        auto destination = folder / path;
         std::filesystem::create_directories(destination.parent_path(), code);
         std::ofstream out(destination, std::ios::binary);
         out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
         if (!out) return {false, "Can't write " + destination.string()};
-        staged.emplace_back(original->path, std::move(bytes));
-        staged_for.push_back(item.surface);
     }
     if (staged.empty()) return {false, "The pack has no pictures yet"};
 
@@ -198,11 +250,12 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
             return {false, "The pack's copy of " + entry.path + " doesn't match what was staged"};
         ++matched;
     }
-    const auto written = staged.size();
-    if (matched != written)
-        return {false, "The pack holds " + std::to_string(matched) + " of " + std::to_string(written) + " textures"};
+    if (matched != staged.size())
+        return {false, "The pack holds " + std::to_string(matched) + " of " + std::to_string(staged.size()) + " files"};
+    const auto written = staged_for.size();
     return {true, "Built " + std::to_string(written) + (written == 1 ? " texture" : " textures") +
-                      (kind.writes_own_pack ? "" : " with Valve's vpk tool")};
+                      (sharper ? ", " + std::to_string(sharper) + " sharper than the game's own" : "") +
+                      (kind.writes_own_pack ? "" : ", with Valve's vpk tool")};
 }
 
 std::filesystem::path source_game::installed_pack() const {
