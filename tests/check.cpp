@@ -147,6 +147,7 @@ int main(int count, char** arguments) {
 
     auto sharing = pack::pack::open(scratch / "sharing-pack");
     if (auto adopted_here = sharing.adopt_picture(picture, error)) {
+        sharing.put(poster, *adopted_here);
         sharing.put("materials/decals/decalposter002a.vmt", *adopted_here);
         sharing.put("materials/decals/decalposter002b.vmt", *adopted_here).placement.quarter_turns = 1;
     }
