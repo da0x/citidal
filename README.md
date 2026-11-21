@@ -48,8 +48,10 @@ citadel opens on the first game it finds in your Steam libraries.
 - **Drop a picture** on the right, or click to choose one. It is cropped to fill the
   surface's frame. Drag it to move it, and scroll to zoom. Fill, Fit and Stretch, turning,
   and the sliders do the same with more control.
-- **Keep the original's shape** copies the see-through edges of the game's picture, such
-  as a torn poster's, onto yours.
+- **Edges**, for surfaces with see-through parts: **Clean** shows your whole picture and
+  is the default. **Torn edges** keeps only the rips that reach in from the border.
+  **Weathered** copies the original's whole see-through channel, grime and peeling
+  included, which on most signs and posters is far more than the rips.
 - **Where it appears** lists the maps that use the surface. **Play here** builds the pack
   and starts the game on that map.
 - **Build pack** builds and installs the pack. **Play** builds it if anything changed,

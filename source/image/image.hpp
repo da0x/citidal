@@ -22,6 +22,9 @@ struct picture {
 
 enum class fit { fill, fit, stretch };
 
+// How much of the original's see-through channel a new picture takes on.
+enum class edges { clean, torn, weathered };
+
 struct placement {
     fit mode = fit::fill;
     float zoom = 1.0f;
@@ -47,6 +50,6 @@ struct size {
 
 size placed_size(int source_width, int source_height, int width, int height, const placement& place);
 picture compose(const picture& source, int width, int height, const placement& place);
-void keep_shape(picture& target, const picture& original);
+void apply_edges(picture& target, const picture& original, edges kind);
 
 }

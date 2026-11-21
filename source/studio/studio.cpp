@@ -139,7 +139,7 @@ void studio::use_picture(const std::string& file) {
         status_bad = true;
         return;
     }
-    current->put(chosen.surface, *adopted).keep_shape = chosen.original->transparent;
+    current->put(chosen.surface, *adopted);
     chosen.picture = *adopted;
     chosen.photo = within(*photo, photo_preview_size);
     chosen.needs_render = true;
@@ -445,7 +445,13 @@ void studio::draw_controls(pack::replacement& item) {
     ui::end_area();
 
     if (chosen.original && chosen.original->transparent) {
-        edited |= ui::checkbox("Keep the original's shape (its see-through edges)", item.keep_shape);
+        ui::quiet("Edges");
+        ui::same_line();
+        if (ui::tab("Clean", item.edges == image::edges::clean)) { item.edges = image::edges::clean; edited = true; }
+        ui::same_line();
+        if (ui::tab("Torn edges", item.edges == image::edges::torn)) { item.edges = image::edges::torn; edited = true; }
+        ui::same_line();
+        if (ui::tab("Weathered", item.edges == image::edges::weathered)) { item.edges = image::edges::weathered; edited = true; }
         ui::same_line(24);
     }
     if (ui::button("Choose another picture")) window.choose_picture();

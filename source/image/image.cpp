@@ -124,16 +124,54 @@ picture compose(const picture& unturned, int width, int height, const placement&
     return result;
 }
 
-void keep_shape(picture& target, const picture& original) {
-    if (original.empty()) return;
+void apply_edges(picture& target, const picture& original, edges kind) {
+    if (kind == edges::clean || original.empty()) return;
     picture resized;
     const picture* mask = &original;
     if (original.width != target.width || original.height != target.height) {
         resized = resize(original, target.width, target.height);
         mask = &resized;
     }
-    for (std::size_t i = 3; i < target.pixels.size(); i += 4)
-        target.pixels[i] = std::min(target.pixels[i], mask->pixels[i]);
+    const int width = target.width, height = target.height;
+    auto alpha = [&](int x, int y) { return mask->at(x, y)[3]; };
+
+    if (kind == edges::weathered) {
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x) target.at(x, y)[3] = std::min(target.at(x, y)[3], alpha(x, y));
+        return;
+    }
+
+    // Torn: the see-through parts reached from the border, within a band along it, are
+    // the rips. Everything else, the grime and holes inside, stays solid.
+    const int band = std::max(2, std::min(width, height) / 5);
+    std::vector<std::uint8_t> outside(std::size_t(width) * height, 0);
+    std::vector<std::pair<int, int>> stack;
+    auto reach = [&](int x, int y) {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        auto& seen = outside[std::size_t(y) * width + x];
+        if (seen || alpha(x, y) >= 128) return;
+        if (std::min({x, y, width - 1 - x, height - 1 - y}) > band) return;
+        seen = 1;
+        stack.emplace_back(x, y);
+    };
+    for (int x = 0; x < width; ++x) { reach(x, 0); reach(x, height - 1); }
+    for (int y = 0; y < height; ++y) { reach(0, y); reach(width - 1, y); }
+    while (!stack.empty()) {
+        auto [x, y] = stack.back();
+        stack.pop_back();
+        reach(x + 1, y); reach(x - 1, y); reach(x, y + 1); reach(x, y - 1);
+    }
+    auto near_outside = [&](int x, int y) {
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                int nx = x + dx, ny = y + dy;
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height && outside[std::size_t(ny) * width + nx]) return true;
+            }
+        return false;
+    };
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            if (near_outside(x, y)) target.at(x, y)[3] = std::min(target.at(x, y)[3], alpha(x, y));
 }
 
 }

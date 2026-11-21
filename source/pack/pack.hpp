@@ -13,7 +13,7 @@ struct replacement {
     std::string surface;
     std::string picture;
     image::placement placement;
-    bool keep_shape = false;
+    image::edges edges = image::edges::clean;
 };
 
 class pack {

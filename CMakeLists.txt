@@ -66,3 +66,6 @@ target_compile_options(citadel PRIVATE -Wall -Wextra)
 
 add_executable(citadel_check tests/check.cpp)
 target_link_libraries(citadel_check PRIVATE citadel_core)
+
+add_executable(citadel_show tools/show.cpp)
+target_link_libraries(citadel_show PRIVATE citadel_core)

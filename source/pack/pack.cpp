@@ -21,6 +21,21 @@ const char* fit_name(image::fit mode) {
     return "fill";
 }
 
+const char* edges_name(image::edges kind) {
+    switch (kind) {
+    case image::edges::torn: return "torn";
+    case image::edges::weathered: return "weathered";
+    case image::edges::clean: break;
+    }
+    return "clean";
+}
+
+image::edges edges_from(const std::string& name) {
+    if (name == "torn") return image::edges::torn;
+    if (name == "weathered") return image::edges::weathered;
+    return image::edges::clean;
+}
+
 image::fit fit_from(const std::string& name) {
     if (name == "fit") return image::fit::fit;
     if (name == "stretch") return image::fit::stretch;
@@ -56,7 +71,7 @@ pack pack::open(const std::filesystem::path& folder) {
         item.placement.pan_x = entry.value("pan_x", 0.0f);
         item.placement.pan_y = entry.value("pan_y", 0.0f);
         item.placement.quarter_turns = entry.value("turns", 0);
-        item.keep_shape = entry.value("keep_shape", false);
+        item.edges = edges_from(entry.value("edges", "clean"));
         if (!item.surface.empty() && !item.picture.empty()) result.items.push_back(item);
     }
     return result;
@@ -73,7 +88,7 @@ bool pack::save(std::string& error) const {
             {"pan_x", item.placement.pan_x},
             {"pan_y", item.placement.pan_y},
             {"turns", item.placement.quarter_turns},
-            {"keep_shape", item.keep_shape},
+            {"edges", edges_name(item.edges)},
         });
     }
     std::error_code code;
@@ -138,7 +153,7 @@ replacement& pack::put(const std::string& surface, const std::string& picture) {
         existing->placement = {};
         return *existing;
     }
-    items.push_back({surface, picture, {}, false});
+    items.push_back({surface, picture, {}, image::edges::clean});
     return items.back();
 }
 
@@ -152,7 +167,7 @@ std::filesystem::path pack::picture_file(const std::string& picture) const {
 
 image::picture render(const replacement& item, const image::picture& photo, const image::picture& original) {
     auto result = image::compose(photo, original.width, original.height, item.placement);
-    if (item.keep_shape) image::keep_shape(result, original);
+    image::apply_edges(result, original, item.edges);
     return result;
 }
 
