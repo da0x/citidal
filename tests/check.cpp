@@ -123,6 +123,16 @@ int main(int count, char** arguments) {
     std::printf("     %s\n", built.message.c_str());
     expect(built.ok, "built the pack");
 
+    auto sharing = pack::pack::open(scratch / "sharing-pack");
+    if (auto adopted_here = sharing.adopt_picture(picture, error)) {
+        sharing.put("materials/decals/decalposter002a.vmt", *adopted_here);
+        sharing.put("materials/decals/decalposter002b.vmt", *adopted_here).placement.quarter_turns = 1;
+    }
+    auto refused = game.build(sharing, scratch / "sharing-staging");
+    std::printf("     %s\n", refused.message.c_str());
+    expect(!refused.ok && refused.message.find("props/metalsign001b.vtf") != std::string::npos,
+           "two signs on one texture are refused by name");
+
     auto start = std::chrono::steady_clock::now();
     while (!game.levels_ready()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();

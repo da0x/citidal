@@ -150,10 +150,17 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
     std::filesystem::create_directories(folder, code);
     if (code) return {false, "Can't make " + folder.string() + ": " + code.message()};
 
+    // Several materials can draw one texture, and the game holds one picture per texture.
+    auto shown = [](const std::string& surface) { return surface.substr(10, surface.size() - 14); };
     std::vector<std::pair<std::string, std::vector<std::uint8_t>>> staged;
+    std::vector<std::string> staged_for;
     for (const auto& item : pack.replacements()) {
         auto original = load_texture(item.surface, 0);
         if (!original) return {false, "Can't read the game's texture for " + item.surface};
+        for (std::size_t i = 0; i < staged.size(); ++i)
+            if (staged[i].first == original->path)
+                return {false, shown(staged_for[i]) + " and " + shown(item.surface) + " are one texture in the game (" +
+                                   original->path.substr(10) + "), so they can't have different pictures. Remove one of them."};
         std::string error;
         auto photo = image::load(pack.picture_file(item.picture), error);
         if (!photo) return {false, "Can't read the picture for " + item.surface + ": " + error};
@@ -165,6 +172,7 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
         out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
         if (!out) return {false, "Can't write " + destination.string()};
         staged.emplace_back(original->path, std::move(bytes));
+        staged_for.push_back(item.surface);
     }
     if (staged.empty()) return {false, "The pack has no pictures yet"};
 
