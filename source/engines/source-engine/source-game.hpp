@@ -11,18 +11,35 @@
 
 namespace source_engine {
 
-// Half-Life 2 and its two episodes share one install, and all three mount
-// hl2/custom/ ahead of their own content, so one pack reaches every one of them.
-class half_life_2 final : public engine::game {
-public:
-    static std::unique_ptr<half_life_2> open(const std::filesystem::path& root, std::string& error);
+struct edition_info {
+    std::string folder;
+    std::string name;
+    int app = 0;
+};
 
-    std::string slug() const override { return "half-life-2"; }
-    std::string name() const override { return "Half-Life 2"; }
+// What makes one Source game different from another: where Steam installs it, its game
+// folders (in the order their content stacks), where a pack goes, and its shelves.
+struct description {
+    std::string slug;
+    std::string name;
+    std::string steam_folder;
+    std::vector<edition_info> editions;
+    std::string pack_folder;
+    std::vector<engine::shelf> shelves;
+};
+
+const std::vector<description>& known_games();
+
+class source_game final : public engine::game {
+public:
+    static std::unique_ptr<source_game> open(const description& kind, const std::filesystem::path& root, std::string& error);
+
+    std::string slug() const override { return kind.slug; }
+    std::string name() const override { return kind.name; }
     std::filesystem::path location() const override { return root; }
 
     const std::vector<engine::surface>& surfaces() const override { return all_surfaces; }
-    std::vector<engine::shelf> shelves() const override;
+    std::vector<engine::shelf> shelves() const override { return kind.shelves; }
     std::optional<engine::art> original(const std::string& surface, int at_least) const override;
 
     bool levels_ready() const override;
@@ -43,6 +60,10 @@ private:
     };
     std::optional<texture> load_texture(const std::string& material, int at_least) const;
 
+    const edition_info* edition_by_folder(const std::string& folder) const;
+    std::string edition_name(const std::string& folder) const;
+
+    description kind;
     std::filesystem::path root;
     std::optional<content> files;
     std::vector<engine::surface> all_surfaces;

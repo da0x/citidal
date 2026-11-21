@@ -43,7 +43,7 @@ add_library(citadel_core STATIC
     source/engines/source-engine/content.cpp
     source/engines/source-engine/material.cpp
     source/engines/source-engine/maps.cpp
-    source/engines/source-engine/half-life-2.cpp
+    source/engines/source-engine/source-game.cpp
     source/engines/id-tech-3/zip.cpp
     source/engines/id-tech-3/content.cpp
     source/engines/id-tech-3/quake-3-arena.cpp)

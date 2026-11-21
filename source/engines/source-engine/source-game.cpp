@@ -1,10 +1,9 @@
-#include "engines/source-engine/half-life-2.hpp"
+#include "engines/source-engine/source-game.hpp"
 
 #include "engines/source-engine/material.hpp"
 #include "platform/install.hpp"
 #include "platform/process.hpp"
 
-#include <array>
 #include <chrono>
 #include <fstream>
 #include <iterator>
@@ -13,45 +12,51 @@ namespace source_engine {
 
 namespace {
 
-struct edition_info {
-    const char* folder;
-    const char* name;
-    int app;
-};
-
-constexpr std::array<edition_info, 3> known_editions{{
-    {"hl2", "Half-Life 2", 220},
-    {"episodic", "Episode One", 380},
-    {"ep2", "Episode Two", 420},
-}};
-
-const edition_info* edition_by_folder(const std::string& folder) {
-    for (const auto& edition : known_editions)
-        if (folder == edition.folder) return &edition;
-    return nullptr;
-}
-
-std::string edition_name(const std::string& folder) {
-    auto* edition = edition_by_folder(folder);
-    return edition ? edition->name : folder;
-}
-
 constexpr const char* pack_name = "citadel";
 
 }
 
-std::unique_ptr<half_life_2> half_life_2::open(const std::filesystem::path& root, std::string& error) {
-    auto game = std::unique_ptr<half_life_2>(new half_life_2());
+// Half-Life 2 and its two episodes share one install, and all three mount hl2/custom/
+// ahead of their own content, so one pack reaches every one of them.
+const std::vector<description>& known_games() {
+    static const std::vector<description> games{
+        {"half-life-2", "Half-Life 2", "Half-Life 2",
+         {{"hl2", "Half-Life 2", 220}, {"episodic", "Episode One", 380}, {"ep2", "Episode Two", 420}},
+         "hl2/custom",
+         {{"Posters", {"poster"}},
+          {"Signs", {"sign"}},
+          {"Billboards", {"billboard"}},
+          {"Screens", {"screen", "monitor"}},
+          {"Paintings", {"painting", "picture", "portrait", "photo"}},
+          {"Menu backgrounds", {"console/background", "console/ep1_background", "console/ep2_background"}}}},
+    };
+    return games;
+}
+
+const edition_info* source_game::edition_by_folder(const std::string& folder) const {
+    for (const auto& edition : kind.editions)
+        if (folder == edition.folder) return &edition;
+    return nullptr;
+}
+
+std::string source_game::edition_name(const std::string& folder) const {
+    auto* edition = edition_by_folder(folder);
+    return edition ? edition->name : folder;
+}
+
+std::unique_ptr<source_game> source_game::open(const description& kind, const std::filesystem::path& root, std::string& error) {
+    auto game = std::unique_ptr<source_game>(new source_game());
+    game->kind = kind;
     game->root = root;
 
     std::string widest;
-    for (const auto& edition : known_editions) {
+    for (const auto& edition : kind.editions) {
         if (!std::filesystem::exists(root / edition.folder / "gameinfo.txt")) continue;
         game->available_editions.push_back({edition.folder, edition.name});
         widest = edition.folder;
     }
     if (widest.empty()) {
-        error = "No Half-Life 2 game folders in " + root.string();
+        error = "No " + kind.name + " game folders in " + root.string();
         return nullptr;
     }
 
@@ -60,7 +65,7 @@ std::unique_ptr<half_life_2> half_life_2::open(const std::filesystem::path& root
 
     for (const auto& path : game->files->files("materials/", ".vmt")) {
         std::string name = path.substr(10, path.size() - 14);
-        game->all_surfaces.push_back({path, name, edition_name(game->files->owner(path))});
+        game->all_surfaces.push_back({path, name, game->edition_name(game->files->owner(path))});
     }
 
     const content* source = &*game->files;
@@ -68,18 +73,7 @@ std::unique_ptr<half_life_2> half_life_2::open(const std::filesystem::path& root
     return game;
 }
 
-std::vector<engine::shelf> half_life_2::shelves() const {
-    return {
-        {"Posters", {"poster"}},
-        {"Signs", {"sign"}},
-        {"Billboards", {"billboard"}},
-        {"Screens", {"screen", "monitor"}},
-        {"Paintings", {"painting", "picture", "portrait", "photo"}},
-        {"Menu backgrounds", {"console/background", "console/ep1_background", "console/ep2_background"}},
-    };
-}
-
-std::optional<half_life_2::texture> half_life_2::load_texture(const std::string& material, int at_least) const {
+std::optional<source_game::texture> source_game::load_texture(const std::string& material, int at_least) const {
     auto path = base_texture(*files, material);
     if (path.empty()) return std::nullopt;
     auto header = files->read(path, 0, vtf::header_read_size);
@@ -95,7 +89,7 @@ std::optional<half_life_2::texture> half_life_2::load_texture(const std::string&
     return texture{path, *info, std::move(*picture)};
 }
 
-std::optional<engine::art> half_life_2::original(const std::string& surface, int at_least) const {
+std::optional<engine::art> source_game::original(const std::string& surface, int at_least) const {
     auto found = load_texture(surface, at_least);
     if (!found) return std::nullopt;
     engine::art result;
@@ -108,14 +102,14 @@ std::optional<engine::art> half_life_2::original(const std::string& surface, int
     return result;
 }
 
-bool half_life_2::levels_ready() const {
+bool source_game::levels_ready() const {
     if (index) return true;
     if (!index_job.valid() || index_job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
     index = index_job.get();
     return true;
 }
 
-std::vector<engine::level> half_life_2::levels_using(const std::string& surface) const {
+std::vector<engine::level> source_game::levels_using(const std::string& surface) const {
     std::vector<engine::level> levels;
     if (!levels_ready()) return levels;
     std::string name = surface.substr(10, surface.size() - 14);
@@ -123,7 +117,7 @@ std::vector<engine::level> half_life_2::levels_using(const std::string& surface)
     return levels;
 }
 
-engine::outcome half_life_2::build(const pack::pack& pack, const std::filesystem::path& staging) const {
+engine::outcome source_game::build(const pack::pack& pack, const std::filesystem::path& staging) const {
     std::error_code code;
     const auto folder = staging / pack_name;
     std::filesystem::remove_all(folder, code);
@@ -169,20 +163,20 @@ engine::outcome half_life_2::build(const pack::pack& pack, const std::filesystem
     return {true, "Built " + std::to_string(written) + (written == 1 ? " texture" : " textures") + " with Valve's vpk tool"};
 }
 
-std::filesystem::path half_life_2::installed_pack() const {
-    return root / "hl2/custom" / (std::string(pack_name) + ".vpk");
+std::filesystem::path source_game::installed_pack() const {
+    return root / kind.pack_folder / (std::string(pack_name) + ".vpk");
 }
 
-engine::outcome half_life_2::install(const std::filesystem::path& staging) const {
+engine::outcome source_game::install(const std::filesystem::path& staging) const {
     std::error_code code;
     const auto built = staging / (std::string(pack_name) + ".vpk");
     std::filesystem::create_directories(installed_pack().parent_path(), code);
     std::filesystem::copy_file(built, installed_pack(), std::filesystem::copy_options::overwrite_existing, code);
     if (code) return {false, "Can't copy the pack into the game: " + code.message()};
-    return {true, "The pack is in the game, in hl2/custom"};
+    return {true, "The pack is in the game, in " + kind.pack_folder};
 }
 
-engine::outcome half_life_2::uninstall() const {
+engine::outcome source_game::uninstall() const {
     std::error_code code;
     if (!std::filesystem::remove(installed_pack(), code)) {
         if (code) return {false, code.message()};
@@ -191,7 +185,7 @@ engine::outcome half_life_2::uninstall() const {
     return {true, "Took the pack out of the game"};
 }
 
-engine::outcome half_life_2::launch(const std::string& edition, const std::string& level) const {
+engine::outcome source_game::launch(const std::string& edition, const std::string& level) const {
     auto* found = edition_by_folder(edition);
     if (!found) return {false, "Unknown edition " + edition};
     std::vector<std::string> arguments;
