@@ -12,8 +12,14 @@ namespace source_engine {
 std::vector<std::string> keyvalue_tokens(std::string_view text);
 std::string normalized(std::string value);
 std::string base_texture(const content& files, const std::string& material);
-// The material's text with its $decalscale divided by `times`, so that a decal drawn
-// from a texture `times` as wide stays the size it was.
-std::optional<std::string> with_decal_scale(const content& files, const std::string& material, int times);
+// A change to a material: its $decalscale divided by `smaller`, so a decal drawn from a
+// texture that many times as wide stays the size it was, and its $basetexture pointed at
+// a texture of its own when it isn't empty.
+struct material_change {
+    int smaller = 1;
+    std::string base_texture;
+};
+
+std::optional<std::string> changed_material(const content& files, const std::string& material, const material_change& change);
 
 }

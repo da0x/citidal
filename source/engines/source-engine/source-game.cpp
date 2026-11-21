@@ -8,6 +8,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <map>
 
 namespace source_engine {
 
@@ -187,36 +188,42 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
     std::filesystem::create_directories(folder, code);
     if (code) return {false, "Can't make " + folder.string() + ": " + code.message()};
 
-    // Several materials can draw one texture, and the game holds one picture per texture.
+    // Several materials can draw one texture. The first surface in the pack to use a
+    // texture replaces it in place, along with every material that draws it. A later
+    // surface on the same texture gets a copy of its own under materials/citadel/, and its
+    // material is pointed at that copy.
     const auto& known = survey_job.get();
     std::vector<std::pair<std::string, std::vector<std::uint8_t>>> staged;
     std::unordered_map<std::string, std::string> texture_for;
+    std::map<std::string, material_change> changes;
     std::size_t sharper = 0;
     for (const auto& item : pack.replacements()) {
         auto original = load_texture(item.surface, 0);
         if (!original) return {false, "Can't read the game's texture for " + item.surface};
-        if (auto earlier = texture_for.find(original->path); earlier != texture_for.end())
-            return {false, material_name(earlier->second) + " and " + material_name(item.surface) + " are one texture in the game (" +
-                               original->path.substr(10) + "), so they can't have different pictures. Remove one of them."};
-        texture_for.emplace(original->path, item.surface);
         std::string error;
         auto photo = image::load(pack.picture_file(item.picture), error);
         if (!photo) return {false, "Can't read the picture for " + item.surface + ": " + error};
 
         auto size = resolution_for(item, photo->width, photo->height);
         if (size.width <= 0) return {false, "Can't read the game's texture for " + item.surface};
+        const int scale = size.width / original->info.width;
+        if (scale > 1) ++sharper;
         auto bytes = vtf::encode(pack::render(item, *photo, original->picture, size.width, size.height), original->info.flags);
-        staged.emplace_back(original->path, std::move(bytes));
 
-        if (const int scale = size.width / original->info.width; scale > 1) {
-            ++sharper;
-            if (auto users = known.drawn_by.find(original->path); users != known.drawn_by.end())
-                for (const auto& material : users->second) {
-                    auto text = with_decal_scale(*files, material, scale);
-                    if (!text) return {false, "Can't read the material " + material};
-                    staged.emplace_back(material, std::vector<std::uint8_t>(text->begin(), text->end()));
-                }
+        if (texture_for.try_emplace(original->path, item.surface).second) {
+            staged.emplace_back(original->path, std::move(bytes));
+            if (auto users = known.drawn_by.find(original->path); scale > 1 && users != known.drawn_by.end())
+                for (const auto& material : users->second) changes[material].smaller = scale;
+        } else {
+            const std::string own = "citadel/" + material_name(item.surface);
+            staged.emplace_back("materials/" + own + ".vtf", std::move(bytes));
+            changes[item.surface] = {scale, own};
         }
+    }
+    for (const auto& [material, change] : changes) {
+        auto text = changed_material(*files, material, change);
+        if (!text) return {false, "Can't read the material " + material};
+        staged.emplace_back(material, std::vector<std::uint8_t>(text->begin(), text->end()));
     }
     for (const auto& [path, bytes] : staged) {
         auto destination = folder / path;
@@ -251,7 +258,7 @@ engine::outcome source_game::build(const pack::pack& pack, const std::filesystem
     }
     if (matched != staged.size())
         return {false, "The pack holds " + std::to_string(matched) + " of " + std::to_string(staged.size()) + " files"};
-    const auto written = texture_for.size();
+    const auto written = pack.replacements().size();
     return {true, "Built " + std::to_string(written) + (written == 1 ? " texture" : " textures") +
                       (sharper ? ", " + std::to_string(sharper) + " sharper than the game's own" : "") +
                       (kind.writes_own_pack ? "" : ", with Valve's vpk tool")};

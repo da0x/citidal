@@ -151,10 +151,29 @@ int main(int count, char** arguments) {
         sharing.put("materials/decals/decalposter002a.vmt", *adopted_here);
         sharing.put("materials/decals/decalposter002b.vmt", *adopted_here).placement.quarter_turns = 1;
     }
-    auto refused = game.build(sharing, scratch / "sharing-staging");
-    std::printf("     %s\n", refused.message.c_str());
-    expect(!refused.ok && refused.message.find("props/metalsign001b.vtf") != std::string::npos,
-           "two signs on one texture are refused by name");
+    auto shared = game.build(sharing, scratch / "sharing-staging");
+    std::printf("     %s\n", shared.message.c_str());
+    expect(shared.ok, "two signs on one texture build");
+    {
+        auto packed = source_engine::vpk::archive::open(scratch / "sharing-staging" / "citadel.vpk", error);
+        bool kept = false, copied = false;
+        std::string points_at, scale;
+        if (packed)
+            for (const auto& entry : packed->entries()) {
+                if (entry.path == "materials/props/metalsign001b.vtf") kept = true;
+                if (entry.path == "materials/citadel/decals/decalposter002b.vtf") copied = true;
+                if (entry.path != "materials/decals/decalposter002b.vmt") continue;
+                auto bytes = packed->read(entry);
+                auto tokens = source_engine::keyvalue_tokens(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+                for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
+                    if (tokens[i] == "$basetexture") points_at = tokens[i + 1];
+                    if (tokens[i] == "$decalscale") scale = tokens[i + 1];
+                }
+            }
+        std::printf("     decalposter002b now draws %s with $decalscale %s\n", points_at.c_str(), scale.c_str());
+        expect(kept && copied && points_at == "citadel/decals/decalposter002b",
+               "the second sign gets a texture of its own and the first keeps the game's");
+    }
 
     auto start = std::chrono::steady_clock::now();
     while (!game.levels_ready()) std::this_thread::sleep_for(std::chrono::milliseconds(100));

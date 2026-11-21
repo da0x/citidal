@@ -84,73 +84,110 @@ std::string base_texture(const content& files, const std::string& material) {
 
 namespace source_engine {
 
-std::optional<std::string> with_decal_scale(const content& files, const std::string& material, int times) {
+namespace {
+
+// A key in a material file, with the token after it: its value, or the "{" its block
+// opens with. A block's keys follow at one more depth.
+struct key {
+    std::size_t at = 0;
+    int depth = 0;
+    bool block = false;
+};
+
+std::vector<key> keys_of(const std::vector<token>& tokens) {
+    std::vector<key> keys;
+    int depth = 0;
+    for (std::size_t i = 0; i < tokens.size();) {
+        if (tokens[i].text == "}") {
+            --depth;
+            ++i;
+            continue;
+        }
+        if (i + 1 >= tokens.size()) break;
+        const bool block = tokens[i + 1].text == "{";
+        keys.push_back({i, depth, block});
+        if (block) ++depth;
+        i += 2;
+    }
+    return keys;
+}
+
+// Whether the material, or a material it includes through a patch, sets the key, and
+// the value it ends up with.
+struct found_value {
+    std::string value;
+    bool included = false;
+};
+
+std::optional<found_value> value_of(const content& files, const std::string& material, const std::string& name) {
+    std::string current = material;
+    for (int depth = 0; depth < 4 && !current.empty(); ++depth) {
+        auto bytes = files.read(current);
+        if (!bytes) return std::nullopt;
+        std::string_view text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        auto tokens = placed_tokens(text);
+        std::string include;
+        for (const auto& item : keys_of(tokens)) {
+            const auto word = normalized(tokens[item.at].text);
+            if (!item.block && word == name) return found_value{tokens[item.at + 1].text, depth > 0};
+            if (!item.block && word == "include") include = normalized(tokens[item.at + 1].text);
+        }
+        if (tokens.empty() || normalized(tokens[0].text) != "patch") return std::nullopt;
+        current = include;
+    }
+    return std::nullopt;
+}
+
+// Sets one key in the material's text: blanks it wherever the text sets it, then sets it
+// in the top block, or for a patch in its replace block when the included material has
+// the key and its insert block when it doesn't.
+bool set_value(std::string& text, const std::string& name, const std::string& value, bool included_has_it) {
+    auto tokens = placed_tokens(text);
+    auto keys = keys_of(tokens);
+    if (keys.empty() || !keys.front().block) return false;
+    const bool patch = normalized(tokens[0].text) == "patch";
+
+    const std::string line = "\"" + name + "\" \"" + value + "\"";
+    std::size_t at = tokens[keys.front().at + 1].end;
+    std::string insert = "\n\t" + line;
+    if (patch) {
+        const std::string wanted = included_has_it ? "replace" : "insert";
+        insert = "\n\t\"" + wanted + "\"\n\t{\n\t\t" + line + "\n\t}";
+        for (const auto& item : keys)
+            if (item.block && item.depth == 1 && normalized(tokens[item.at].text) == wanted) {
+                at = tokens[item.at + 1].end;
+                insert = "\n\t\t" + line;
+                break;
+            }
+    }
+    for (const auto& item : keys)
+        if (!item.block && normalized(tokens[item.at].text) == name) {
+            const auto start = tokens[item.at].start, end = tokens[item.at + 1].end;
+            text.replace(start, end - start, std::string(end - start, ' '));
+        }
+    text.insert(at, insert);
+    return true;
+}
+
+}
+
+std::optional<std::string> changed_material(const content& files, const std::string& material, const material_change& change) {
     auto bytes = files.read(material);
     if (!bytes) return std::nullopt;
     std::string text(bytes->begin(), bytes->end());
-    const auto tokens = placed_tokens(text);
-    if (tokens.size() < 2) return std::nullopt;
-    const bool patch = normalized(tokens[0].text) == "patch";
 
-    // The scale it has now, following a patch to the material it includes.
-    double scale = 1;
-    bool included_has_scale = false;
-    std::string current = material;
-    for (int depth = 0; depth < 4 && !current.empty(); ++depth) {
-        auto read = depth == 0 ? bytes : files.read(current);
-        if (!read) break;
-        auto words = keyvalue_tokens(std::string_view(reinterpret_cast<const char*>(read->data()), read->size()));
-        std::string include;
-        bool found = false;
-        for (std::size_t i = 0; i + 1 < words.size(); ++i) {
-            if (normalized(words[i]) == "$decalscale") {
-                scale = std::atof(words[i + 1].c_str());
-                found = true;
-                included_has_scale = depth > 0;
-                break;
-            }
-            if (normalized(words[i]) == "include") include = normalized(words[i + 1]);
-        }
-        if (found || words.empty() || normalized(words[0]) != "patch") break;
-        current = include;
+    if (change.smaller > 1) {
+        auto scale = value_of(files, material, "$decalscale");
+        double now = scale ? std::atof(scale->value.c_str()) : 1;
+        if (now <= 0) now = 1;
+        char value[32];
+        std::snprintf(value, sizeof value, "%g", now / change.smaller);
+        if (!set_value(text, "$decalscale", value, scale && scale->included)) return std::nullopt;
     }
-    if (scale <= 0) scale = 1;
-
-    char value[32];
-    std::snprintf(value, sizeof value, "%g", scale / times);
-    const std::string line = std::string("\"$decalscale\" \"") + value + "\"";
-
-    // Blank out the scale this file sets, then set the new one in the top block, or for a
-    // patch in its insert block, or its replace block when the included material has one.
-    std::vector<std::pair<std::size_t, std::size_t>> cuts;
-    for (std::size_t i = 0; i + 1 < tokens.size(); ++i)
-        if (normalized(tokens[i].text) == "$decalscale") cuts.emplace_back(tokens[i].start, tokens[i + 1].end);
-
-    std::size_t top = 0;
-    while (top < tokens.size() && tokens[top].text != "{") ++top;
-    if (top == tokens.size()) return std::nullopt;
-    std::size_t at = tokens[top].end;
-    std::string insert = "\n\t" + line;
-    if (patch) {
-        const std::string block = included_has_scale ? "replace" : "insert";
-        std::size_t found = tokens.size();
-        int depth = 0;
-        for (std::size_t i = top + 1; i + 1 < tokens.size(); ++i) {
-            if (tokens[i].text == "{") ++depth;
-            if (tokens[i].text == "}") --depth;
-            if (depth == 0 && normalized(tokens[i].text) == block && tokens[i + 1].text == "{") { found = i + 1; break; }
-        }
-        if (found < tokens.size()) {
-            at = tokens[found].end;
-            insert = "\n\t\t" + line;
-        } else {
-            insert = "\n\t\"" + block + "\"\n\t{\n\t\t" + line + "\n\t}";
-        }
+    if (!change.base_texture.empty()) {
+        auto texture = value_of(files, material, "$basetexture");
+        if (!set_value(text, "$basetexture", change.base_texture, texture && texture->included)) return std::nullopt;
     }
-    for (auto cut = cuts.rbegin(); cut != cuts.rend(); ++cut) {
-        text.replace(cut->first, cut->second - cut->first, std::string(cut->second - cut->first, ' '));
-    }
-    text.insert(at, insert);
     return text;
 }
 

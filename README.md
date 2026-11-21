@@ -91,7 +91,12 @@ Decals and map walls don't: the engine sizes them by their pixels. So every mate
 draws a sharper texture is written into the pack too, with its `$decalscale` divided to
 match, and a decal covers the same part of the wall as before. A texture that any map
 paints on its walls keeps the game's size, because nothing in its material could shrink it
-back. The texture's flags, such as clamping or having no mipmaps, are kept. It is written as VTF 7.2 in DXT1, or DXT5 when it has
+back. The texture's flags, such as clamping or having no mipmaps, are kept.
+
+Several materials can draw one texture, such as two signs that share a sheet of metal. The
+first surface in the pack keeps the game's texture path. A later surface on the same
+texture gets a copy of its own under `materials/citadel/`, and its material is pointed
+there, so each sign shows its own picture. It is written as VTF 7.2 in DXT1, or DXT5 when it has
 see-through parts, with a full set of mipmaps unless the original had none.
 
 Packs are made by Valve's own `vpk` tool, which ships with the game on Linux as
